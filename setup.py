@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="django_nplusone",
-    version="0.0.1",
+    version="0.0.3",
     author="Shafiq Ur Rahman",
     author_email="shafiq.tnoli@gmail.com",
     description="Discover possible N+1 queries in your code base",

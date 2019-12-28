@@ -8,6 +8,10 @@ from django.db.models.fields.related_descriptors import (ForwardManyToOneDescrip
 from traceback import extract_stack
 
 
+# to prevent an error message being output to sys.stderr in the absence of logging configuration
+logging.getLogger('nplusone').addHandler(logging.NullHandler())
+
+
 class NPlusOne:
     """
     Class decorator to wrap around Django's related field descriptors' __get__ method
