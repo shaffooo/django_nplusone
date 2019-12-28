@@ -86,7 +86,7 @@ class NPlusOne:
         return related_model
 
 
-def log_nplusone():
+def show_nplusones():
     """
     Decorate Django's descriptors' __get__ method to log any N+1 candidate statements
     """
