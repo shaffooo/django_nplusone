@@ -1,4 +1,5 @@
 import logging
+import re
 
 from django.db import connections
 from django.db.models.fields.related_descriptors import (ForwardManyToOneDescriptor, ForwardOneToOneDescriptor,
@@ -87,7 +88,7 @@ class NPlusOne:
         Use call stack to trace the statement responsible for N+1 and log it if applicable
         """
         for file, line, function, statement in extract_stack():
-            if field_name in statement:
+            if re.search(r'\b{field_name}\b'.format(field_name=field_name), statement):
                 self.log_warning(model=model_name, field=field_name, relationship=relationship,
                                  file=file, function=function, line=line, statement=statement)
                 break
@@ -135,9 +136,14 @@ class NPlusOne:
 
         many_descriptors = [ReverseManyToOneDescriptor, ManyToManyDescriptor]
         if any(isinstance(descriptor_instance, descriptor_class) for descriptor_class in many_descriptors):
-            return descriptor_instance.rel.name
 
-        # since this message is meant to be used as advisor, we can't throw exception
+            related_name = descriptor_instance.rel.related_name
+            if related_name:
+                return related_name
+
+            return '{}_set'.format(descriptor_instance.rel.name)
+
+        # since this message is meant to be used as advice, we can't throw exception
         return None
 
     def ignore_warning_for_statement(self, statement):
