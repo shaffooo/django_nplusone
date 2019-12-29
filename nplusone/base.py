@@ -1,9 +1,9 @@
-
 import logging
 
 from django.db import connections
 from django.db.models.fields.related_descriptors import (ForwardManyToOneDescriptor, ForwardOneToOneDescriptor,
-                                                         ReverseOneToOneDescriptor)
+                                                         ReverseOneToOneDescriptor, ReverseManyToOneDescriptor,
+                                                         ManyToManyDescriptor)
 
 from traceback import extract_stack
 
@@ -22,33 +22,18 @@ class NPlusOne:
     will detect that and print a debug message to alert developer.
     """
 
+    WARNING_MSG_FORMAT = 'Possible N+1 for model: {model}, field: {field}, relationship: {relationship},'\
+        'file: {file}, function: {function}, line: {line}, statement: {statement}'
+
+    DESCRIPTOR = 'Descriptor'
+
+    IGNORE_WARNING_CODE = '# NO-NPLUSONE'
+
     def __init__(self, get_method):
         self.get_method = get_method
 
-    def total_queries(self):
-        """
-        Get number of database queries on current connections
-        """
-        db_connections = [connections[db_alias] for db_alias in connections.databases]
-        return sum(len(db_connection.queries) for db_connection in db_connections)
-
-    def get_field_name(self, descriptor_instance):
-        """
-        Get the name of related field based on the kind of descriptor we are dealing with
-
-        :param descriptor_instance: type of descriptor representing the django model relationship
-        :return: the string name of the related field or None if unsupported descriptor
-        """
-        forward_descriptors = [ForwardManyToOneDescriptor, ForwardOneToOneDescriptor]
-        if any(isinstance(descriptor_instance, descriptor_class) for descriptor_class in forward_descriptors):
-            return descriptor_instance.field.name
-
-        reverse_descriptors = [ReverseOneToOneDescriptor]
-        if any(isinstance(descriptor_instance, descriptor_class) for descriptor_class in reverse_descriptors):
-            return descriptor_instance.related.name
-
-        # since this message is meant to be used as advisor, we can't throw exception
-        return None
+        # keep track of reported warnings to avoid re-reporting for every model instance
+        self.reported_warnings = set()
 
     def __call__(self, *args, **kwargs):
         """
@@ -69,25 +54,112 @@ class NPlusOne:
         related_model = self.get_method(*args, **kwargs)
         post_num_queries = self.total_queries()
 
-        # see if any database query was made while getting a related field
+        # if model is None, don't proceed
+        if not model:
+            return related_model
+
+        # make sure we can get a field name from descriptor
+        field_name = self.get_field_name(descriptor_instance)
+        if not field_name:
+            return related_model
+
         if post_num_queries > pre_num_queries:
-            field_name = self.get_field_name(descriptor_instance)
+            self.report_warning(model_name=model.__class__.__name__, field_name=field_name,
+                                relationship=self.get_relationship_from_descriptor(descriptor_instance))
 
-            if not field_name:
-                logging.debug('N+1: cannot figure out field name')
-                return related_model
+        # for ReverseManyToOneDescriptor and ManyToManyDescriptor, only RelatedManager and ManyRelatedManager are
+        # returned respectively. The actual decision to make database query or not is done at queryset level
+        if type(descriptor_instance) in [ReverseManyToOneDescriptor, ManyToManyDescriptor]:
 
-            for file, line, function, statement in extract_stack():
-                if field_name in statement:
-                    logging.warning(
-                        'N+1 for [model: {}, field: {}] \n\t'
-                        '[file]: {}, [function]: {}, [statement]: {}, [line]: {}'.format(
-                            model.__class__.__name__, field_name, file, function, statement, line
-                        )
-                    )
-                    break
+            # related_model is actually a RelatedManager/ManyRelatedManager in this case
+            prefetch_pre_num_queries = self.total_queries()
+            list(related_model.all())
+            prefetch_post_num_queries = self.total_queries()
+
+            if prefetch_post_num_queries > prefetch_pre_num_queries:
+                self.report_warning(model_name=model.__class__.__name__, field_name=field_name,
+                                    relationship=self.get_relationship_from_descriptor(descriptor_instance))
 
         return related_model
+
+    def report_warning(self, model_name, field_name, relationship):
+        """
+        Use call stack to trace the statement responsible for N+1 and log it if applicable
+        """
+        for file, line, function, statement in extract_stack():
+            if field_name in statement:
+                self.log_warning(model=model_name, field=field_name, relationship=relationship,
+                                 file=file, function=function, line=line, statement=statement)
+                break
+
+    def log_warning(self, **kwargs):
+        """
+        Keep track of reported warnings to avoid repeated warnings for same statement when used in iteration
+        """
+
+        # ignore warning for statement if it contains the IGNORE_WARNING_CODE
+        statement = kwargs.get('statement')
+        if self.ignore_warning_for_statement(statement):
+            return
+
+        # construct warning message
+        message = self.WARNING_MSG_FORMAT.format(**kwargs)
+
+        if message in self.reported_warnings:
+            return
+
+        # otherwise, record the warning and log it
+        self.reported_warnings.add(message)
+        logging.warning(message)
+
+    def total_queries(self):
+        """
+        Get number of database queries on current connections
+        """
+        db_connections = [connections[db_alias] for db_alias in connections.databases]
+        return sum(len(db_connection.queries) for db_connection in db_connections)
+
+    def get_field_name(self, descriptor_instance):
+        """
+        Get the name of related field based on the kind of descriptor we are dealing with
+
+        :param descriptor_instance: type of descriptor representing the django model relationship
+        :return: the string name of the related field or None if unsupported descriptor
+        """
+        forward_descriptors = [ForwardManyToOneDescriptor, ForwardOneToOneDescriptor]
+        if any(isinstance(descriptor_instance, descriptor_class) for descriptor_class in forward_descriptors):
+            return descriptor_instance.field.name
+
+        if isinstance(descriptor_instance, ReverseOneToOneDescriptor):
+            return descriptor_instance.related.name
+
+        many_descriptors = [ReverseManyToOneDescriptor, ManyToManyDescriptor]
+        if any(isinstance(descriptor_instance, descriptor_class) for descriptor_class in many_descriptors):
+            return descriptor_instance.rel.name
+
+        # since this message is meant to be used as advisor, we can't throw exception
+        return None
+
+    def ignore_warning_for_statement(self, statement):
+        """
+        Ignore reporting warning for a statement that ends with comment IGNORE_WARNING_CODE
+        """
+
+        if statement.strip().endswith(self.IGNORE_WARNING_CODE):
+            return True
+
+        return False
+
+    def get_relationship_from_descriptor(self, descriptor):
+        """
+        Get relationship from descriptor type by stripping `Descriptor` off from end
+        """
+        descriptor_class_name = descriptor.__class__.__name__
+
+        if descriptor_class_name.endswith(self.DESCRIPTOR):
+            return descriptor_class_name[:-len(self.DESCRIPTOR)]
+
+        return descriptor_class_name
 
 
 def show_nplusones():
@@ -95,7 +167,10 @@ def show_nplusones():
     Decorate Django's descriptors' __get__ method to log any N+1 candidate statements
     """
 
-    descriptors = [ForwardManyToOneDescriptor, ForwardOneToOneDescriptor, ReverseOneToOneDescriptor]
+    # ManyToManyDescriptor is subclass of ReverseManyToOneDescriptor with no __get__ method of its own
+    descriptors = [ForwardManyToOneDescriptor, ForwardOneToOneDescriptor, ReverseOneToOneDescriptor,
+                   ReverseManyToOneDescriptor]
+
     for descriptor in descriptors:
         get_method = getattr(descriptor, '__get__')
         setattr(descriptor, '__get__', NPlusOne(get_method))

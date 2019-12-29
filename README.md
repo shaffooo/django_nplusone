@@ -26,6 +26,10 @@ if DEBUG:
 
 This should start logging possible N+1s warnings using your logger configuration. The library uses standard python `logging` module and uses logger by the name of `nplusone`.
 
+## Ignore specific warnings
+
+You can ignore warning for a specific statement by ending the statement with `# NO-NPLUSONE`.
+
 ## Test
 
 You can test the N+1 warning logging by putting some code as shown below somewhere in your application code that you know will get executed. Say you have a model `User` with a foreign key field `org` to `Organization` model.
