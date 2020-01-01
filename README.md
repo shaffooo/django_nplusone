@@ -1,5 +1,5 @@
 # django_nplusone
-Discover possible N+1 queries in Django ORM at runtime
+Discover possible N+1 queries in Django ORM at runtime during development
 
 The objective of this library is to help you discover any N+1s in your code at development time. Enable logging of 
 warnings by following instructions shown in Usage section. Run your Django app as usual and you will see warning logs 
