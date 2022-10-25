@@ -23,8 +23,8 @@ class NPlusOne:
     will detect that and print a debug message to alert developer.
     """
 
-    WARNING_MSG_FORMAT = 'Possible N+1 for model: {model}, field: {field}, relationship: {relationship},'\
-        'file: {file}, function: {function}, line: {line}, statement: {statement}'
+    WARNING_MSG_FORMAT = '\n*** Possible N+1 for model: {model}, field: {field},\nrelationship: {relationship},'\
+        '\nfile: {file}, \nfunction: {function}, line: {line}, statement: {statement}\n'
 
     DESCRIPTOR = 'Descriptor'
 
@@ -88,7 +88,7 @@ class NPlusOne:
         Use call stack to trace the statement responsible for N+1 and log it if applicable
         """
         for file, line, function, statement in extract_stack():
-            if re.search(r'\b{field_name}\b'.format(field_name=field_name), statement):
+            if re.search(r'\b{field_name}\b'.format(field_name=re.escape(field_name)), statement):
                 self.log_warning(model=model_name, field=field_name, relationship=relationship,
                                  file=file, function=function, line=line, statement=statement)
                 break
