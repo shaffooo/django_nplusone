@@ -88,7 +88,7 @@ class NPlusOne:
         Use call stack to trace the statement responsible for N+1 and log it if applicable
         """
         for file, line, function, statement in extract_stack():
-            if re.search(r'\b{field_name}\b'.format(field_name=field_name), statement):
+            if re.search(r'\b{field_name}\b'.format(field_name=re.escape(field_name)), statement):
                 self.log_warning(model=model_name, field=field_name, relationship=relationship,
                                  file=file, function=function, line=line, statement=statement)
                 break
