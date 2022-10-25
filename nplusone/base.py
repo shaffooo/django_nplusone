@@ -23,8 +23,8 @@ class NPlusOne:
     will detect that and print a debug message to alert developer.
     """
 
-    WARNING_MSG_FORMAT = '\n*** Possible N+1 for model: {model}, field: {field},\nrelationship: {relationship},'\
-        '\nfile: {file}, \nfunction: {function}, line: {line}, statement: {statement}\n'
+    WARNING_MSG_FORMAT = 'Possible N+1 for model: {model}, field: {field}, relationship: {relationship},'\
+        'file: {file}, function: {function}, line: {line}, statement: {statement}'
 
     DESCRIPTOR = 'Descriptor'
 
